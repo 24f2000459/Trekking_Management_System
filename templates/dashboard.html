@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  </head>
+  <body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+      <div class="container">
+        <a class="navbar-brand" href="#">Trekking Management</a>
+        <div class="ms-auto">
+          <a class="btn btn-outline-light btn-sm" href="{{ url_for('logout') }}">Logout</a>
+        </div>
+      </div>
+    </nav>
+    <div class="container py-4">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      {% if role == 'admin' %}
+        <h2 class="mb-4">Admin Dashboard</h2>
+        <div class="row g-3 mb-4">
+          <div class="col-md-3"><div class="card p-3"><h5>Total Treks</h5><h3>{{ stats.treks }}</h3></div></div>
+          <div class="col-md-3"><div class="card p-3"><h5>Total Users</h5><h3>{{ stats.users }}</h3></div></div>
+          <div class="col-md-3"><div class="card p-3"><h5>Total Staff</h5><h3>{{ stats.staff }}</h3></div></div>
+          <div class="col-md-3"><div class="card p-3"><h5>Total Bookings</h5><h3>{{ stats.bookings }}</h3></div></div>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h4>Manage Treks</h4>
+          <a class="btn btn-primary" href="{{ url_for('new_trek') }}">Create Trek</a>
+        </div>
+        <table class="table table-bordered">
+          <thead><tr><th>ID</th><th>Name</th><th>Location</th><th>Staff</th><th>Status</th><th>Slots</th><th>Actions</th></tr></thead>
+          <tbody>
+            {% for trek in treks %}
+            <tr>
+              <td>{{ trek.id }}</td>
+              <td>{{ trek.name }}</td>
+              <td>{{ trek.location }}</td>
+              <td>{{ trek.staff_name or 'Unassigned' }}</td>
+              <td>{{ trek.status }}</td>
+              <td>{{ trek.available_slots }}</td>
+              <td>
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('edit_trek', trek_id=trek.id) }}">Edit</a>
+                <form method="post" action="{{ url_for('delete_trek', trek_id=trek.id) }}" style="display:inline;">
+                  <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        <h4 class="mt-4">Pending Staff Approvals</h4>
+        <ul class="list-group mb-4">
+          {% for staff in pending_staff %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+              {{ staff.full_name }} ({{ staff.username }})
+              <form method="post" action="{{ url_for('approve_staff', user_id=staff.id) }}">
+                <button class="btn btn-sm btn-success" type="submit">Approve</button>
+              </form>
+            </li>
+          {% else %}
+            <li class="list-group-item">No pending approvals.</li>
+          {% endfor %}
+        </ul>
+
+        <h4>Users and Staff</h4>
+        <table class="table table-bordered">
+          <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>
+            {% for user in users %}
+            <tr>
+              <td>{{ user.id }}</td>
+              <td>{{ user.full_name }}</td>
+              <td>{{ user.role }}</td>
+              <td>{{ user.status }}</td>
+              <td>
+                {% if user.status != 'blacklisted' %}
+                <form method="post" action="{{ url_for('blacklist_user', user_id=user.id) }}" style="display:inline;">
+                  <button class="btn btn-sm btn-warning" type="submit">Blacklist</button>
+                </form>
+                {% else %}
+                <form method="post" action="{{ url_for('restore_user', user_id=user.id) }}" style="display:inline;">
+                  <button class="btn btn-sm btn-success" type="submit">Approve Again</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% elif role == 'staff' %}
+        <h2 class="mb-4">Staff Dashboard</h2>
+        <div class="row g-3 mb-4">
+          {% for trek in treks %}
+            <div class="col-md-6">
+              <div class="card p-3">
+                <h5>{{ trek.name }}</h5>
+                <p class="mb-1">Location: {{ trek.location }}</p>
+                <p class="mb-1">Slots: {{ trek.available_slots }}</p>
+                <p class="mb-1">Status: {{ trek.status }}</p>
+                <form method="post" action="{{ url_for('update_trek', trek_id=trek.id) }}">
+                  <div class="mb-2">
+                    <label class="form-label">Available Slots</label>
+                    <input type="number" class="form-control" name="available_slots" value="{{ trek.available_slots }}" required>
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label">Status</label>
+                    <select class="form-select" name="status">
+                      <option value="Open" {% if trek.status == 'Open' %}selected{% endif %}>Open</option>
+                      <option value="Closed" {% if trek.status == 'Closed' %}selected{% endif %}>Closed</option>
+                    </select>
+                  </div>
+                  <button class="btn btn-primary btn-sm" type="submit">Update</button>
+                </form>
+              </div>
+            </div>
+          {% else %}
+            <div class="col-12"><div class="alert alert-info">No assigned treks yet.</div></div>
+          {% endfor %}
+        </div>
+
+        <h4>Registered Participants</h4>
+        <table class="table table-bordered">
+          <thead><tr><th>Name</th><th>Trek</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for participant in participants %}
+            <tr><td>{{ participant.full_name }}</td><td>{{ participant.trek_name or 'Unknown' }}</td><td>{{ participant.status }}</td></tr>
+            {% else %}
+            <tr><td colspan="3">No participants yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <h2 class="mb-4">User Dashboard</h2>
+        <div class="row g-3 mb-4">
+          {% for trek in treks %}
+            <div class="col-md-6">
+              <div class="card p-3">
+                <h5>{{ trek.name }}</h5>
+                <p class="mb-1">Location: {{ trek.location }}</p>
+                <p class="mb-1">Difficulty: {{ trek.difficulty }}</p>
+                <p class="mb-1">Slots: {{ trek.available_slots }}</p>
+                <p class="mb-1">Status: {{ trek.status }}</p>
+                <form method="post" action="{{ url_for('book_trek', trek_id=trek.id) }}">
+                  <button class="btn btn-success btn-sm" type="submit">Book Trek</button>
+                </form>
+              </div>
+            </div>
+          {% else %}
+            <div class="col-12"><div class="alert alert-info">No open treks available.</div></div>
+          {% endfor %}
+        </div>
+
+        <h4>Your Bookings</h4>
+        <table class="table table-bordered">
+          <thead><tr><th>Trek</th><th>Status</th><th>Date</th></tr></thead>
+          <tbody>
+            {% for booking in bookings %}
+            <tr><td>{{ booking.trek_name }}</td><td>{{ booking.status }}</td><td>{{ booking.booking_date }}</td></tr>
+            {% else %}
+            <tr><td colspan="3">No bookings yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+    </div>
+  </body>
+</html>

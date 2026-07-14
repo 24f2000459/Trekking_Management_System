@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% if trek %}Edit Trek{% else %}Create Trek{% endif %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  </head>
+  <body>
+    <div class="container py-4">
+      <h3>{% if trek %}Edit Trek{% else %}Create Trek{% endif %}</h3>
+      <form method="post">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Trek Name</label>
+            <input class="form-control" name="name" value="{{ trek.name if trek else '' }}" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Location</label>
+            <input class="form-control" name="location" value="{{ trek.location if trek else '' }}" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Difficulty</label>
+            <select class="form-select" name="difficulty">
+              <option value="Easy" {% if trek and trek.difficulty == 'Easy' %}selected{% endif %}>Easy</option>
+              <option value="Moderate" {% if trek and trek.difficulty == 'Moderate' %}selected{% endif %}>Moderate</option>
+              <option value="Hard" {% if trek and trek.difficulty == 'Hard' %}selected{% endif %}>Hard</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Duration (days)</label>
+            <input class="form-control" type="number" name="duration_days" value="{{ trek.duration_days if trek else '' }}" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Available Slots</label>
+            <input class="form-control" type="number" name="available_slots" value="{{ trek.available_slots if trek else '' }}" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Assigned Staff</label>
+            <select class="form-select" name="assigned_staff_id">
+              <option value="">Unassigned</option>
+              {% for staff_member in staff %}
+              <option value="{{ staff_member.id }}" {% if trek and trek.assigned_staff_id == staff_member.id %}selected{% endif %}>{{ staff_member.full_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Status</label>
+            <select class="form-select" name="status">
+              <option value="Pending" {% if trek and trek.status == 'Pending' %}selected{% endif %}>Pending</option>
+              <option value="Approved" {% if trek and trek.status == 'Approved' %}selected{% endif %}>Approved</option>
+              <option value="Open" {% if trek and trek.status == 'Open' %}selected{% endif %}>Open</option>
+              <option value="Closed" {% if trek and trek.status == 'Closed' %}selected{% endif %}>Closed</option>
+              <option value="Completed" {% if trek and trek.status == 'Completed' %}selected{% endif %}>Completed</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Start Date</label>
+            <input class="form-control" type="date" name="start_date" value="{{ trek.start_date if trek else '' }}" required>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">End Date</label>
+            <input class="form-control" type="date" name="end_date" value="{{ trek.end_date if trek else '' }}" required>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Description</label>
+            <textarea class="form-control" name="description">{{ trek.description if trek else '' }}</textarea>
+          </div>
+        </div>
+        <button class="btn btn-primary mt-3" type="submit">Save</button>
+        <a class="btn btn-outline-secondary mt-3" href="{{ url_for('dashboard') }}">Cancel</a>
+      </form>
+    </div>
+  </body>
+</html>

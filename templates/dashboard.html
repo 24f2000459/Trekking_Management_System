@@ -26,6 +26,17 @@
 
       {% if role == 'admin' %}
         <h2 class="mb-4">Admin Dashboard</h2>
+        
+        <!-- Admin Search Form -->
+        <form method="get" action="{{ url_for('dashboard') }}" class="row g-3 mb-4">
+          <div class="col-md-10">
+            <input type="text" name="search" class="form-control" placeholder="Search treks, staff, or users by Name or ID..." value="{{ search or '' }}">
+          </div>
+          <div class="col-md-2">
+            <button type="submit" class="btn btn-dark w-100">Search</button>
+          </div>
+        </form>
+
         <div class="row g-3 mb-4">
           <div class="col-md-3"><div class="card p-3"><h5>Total Treks</h5><h3>{{ stats.treks }}</h3></div></div>
           <div class="col-md-3"><div class="card p-3"><h5>Total Users</h5><h3>{{ stats.users }}</h3></div></div>
@@ -51,7 +62,7 @@
               <td>
                 <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('edit_trek', trek_id=trek.id) }}">Edit</a>
                 <form method="post" action="{{ url_for('delete_trek', trek_id=trek.id) }}" style="display:inline;">
-                  <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+                  <button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Delete this trek?');">Delete</button>
                 </form>
               </td>
             </tr>
@@ -74,7 +85,7 @@
         </ul>
 
         <h4>Users and Staff</h4>
-        <table class="table table-bordered">
+        <table class="table table-bordered mb-4">
           <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Status</th><th>Action</th></tr></thead>
           <tbody>
             {% for user in users %}
@@ -90,14 +101,46 @@
                 </form>
                 {% else %}
                 <form method="post" action="{{ url_for('restore_user', user_id=user.id) }}" style="display:inline;">
-                  <button class="btn btn-sm btn-success" type="submit">Approve Again</button>
+                  <button class="btn btn-sm btn-success" type="submit">Restore</button>
                 </form>
                 {% endif %}
+                <form method="post" action="{{ url_for('delete_user', user_id=user.id) }}" style="display:inline;" onsubmit="return confirm('Are you sure you want to permanently delete this user?');">
+                  <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+                </form>
               </td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
+
+        <h4 class="mt-4">All Bookings & Trekking History</h4>
+        <table class="table table-bordered mb-4">
+          <thead><tr><th>Booking ID</th><th>User Name</th><th>Trek Name</th><th>Booking Date</th><th>Status</th><th>Payment Status</th><th>Action</th></tr></thead>
+          <tbody>
+            {% for booking in bookings %}
+            <tr>
+              <td>{{ booking.id }}</td>
+              <td>{{ booking.user_name }}</td>
+              <td>{{ booking.trek_name }}</td>
+              <td>{{ booking.booking_date }}</td>
+              <td>{{ booking.status }}</td>
+              <td>{{ booking.payment_status }}</td>
+              <td>
+                {% if booking.status == 'Booked' %}
+                <form method="post" action="{{ url_for('cancel_booking', booking_id=booking.id) }}" style="display:inline;">
+                  <button class="btn btn-sm btn-outline-danger" type="submit">Cancel</button>
+                </form>
+                {% else %}
+                -
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7">No bookings found in the system.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
       {% elif role == 'staff' %}
         <h2 class="mb-4">Staff Dashboard</h2>
         <div class="row g-3 mb-4">
@@ -106,18 +149,24 @@
               <div class="card p-3">
                 <h5>{{ trek.name }}</h5>
                 <p class="mb-1">Location: {{ trek.location }}</p>
-                <p class="mb-1">Slots: {{ trek.available_slots }}</p>
-                <p class="mb-1">Status: {{ trek.status }}</p>
-                <form method="post" action="{{ url_for('update_trek', trek_id=trek.id) }}">
+                <p class="mb-1">Available Slots: {{ trek.available_slots }}</p>
+                <p class="mb-1">Registered Trekkers: {{ trek.participant_count }}</p>
+                <p class="mb-1">Status: <span class="badge bg-secondary">{{ trek.status }}</span></p>
+                <form method="post" action="{{ url_for('update_trek', trek_id=trek.id) }}" class="mt-3">
                   <div class="mb-2">
-                    <label class="form-label">Available Slots</label>
-                    <input type="number" class="form-control" name="available_slots" value="{{ trek.available_slots }}" required>
+                    <label class="form-label text-muted small">Available Slots</label>
+                    <input type="number" class="form-control form-control-sm" name="available_slots" value="{{ trek.available_slots }}" required>
                   </div>
                   <div class="mb-2">
-                    <label class="form-label">Status</label>
-                    <select class="form-select" name="status">
+                    <label class="form-label text-muted small">Trek Status</label>
+                    <select class="form-select form-select-sm" name="status">
+                      <option value="Pending" {% if trek.status == 'Pending' %}selected{% endif %}>Pending</option>
+                      <option value="Approved" {% if trek.status == 'Approved' %}selected{% endif %}>Approved</option>
                       <option value="Open" {% if trek.status == 'Open' %}selected{% endif %}>Open</option>
                       <option value="Closed" {% if trek.status == 'Closed' %}selected{% endif %}>Closed</option>
+                      <option value="Started" {% if trek.status == 'Started' %}selected{% endif %}>Started</option>
+                      <option value="Ongoing" {% if trek.status == 'Ongoing' %}selected{% endif %}>Ongoing</option>
+                      <option value="Completed" {% if trek.status == 'Completed' %}selected{% endif %}>Completed</option>
                     </select>
                   </div>
                   <button class="btn btn-primary btn-sm" type="submit">Update</button>
@@ -134,14 +183,34 @@
           <thead><tr><th>Name</th><th>Trek</th><th>Status</th></tr></thead>
           <tbody>
             {% for participant in participants %}
-            <tr><td>{{ participant.full_name }}</td><td>{{ participant.trek_name or 'Unknown' }}</td><td>{{ participant.status }}</td></tr>
+            <tr><td>{{ participant.full_name }}</td><td>{{ participant.trek_name }}</td><td>{{ participant.status }}</td></tr>
             {% else %}
             <tr><td colspan="3">No participants yet.</td></tr>
             {% endfor %}
           </tbody>
         </table>
+
       {% else %}
         <h2 class="mb-4">User Dashboard</h2>
+
+        <!-- User Search & Filter Form -->
+        <form method="get" action="{{ url_for('dashboard') }}" class="row g-3 mb-4">
+          <div class="col-md-6">
+            <input type="text" name="search" class="form-control" placeholder="Search treks by name or location..." value="{{ search or '' }}">
+          </div>
+          <div class="col-md-4">
+            <select name="difficulty" class="form-select">
+              <option value="">All Difficulties</option>
+              <option value="Easy" {% if difficulty == 'Easy' %}selected{% endif %}>Easy</option>
+              <option value="Moderate" {% if difficulty == 'Moderate' %}selected{% endif %}>Moderate</option>
+              <option value="Hard" {% if difficulty == 'Hard' %}selected{% endif %}>Hard</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <button type="submit" class="btn btn-primary w-100">Filter</button>
+          </div>
+        </form>
+
         <div class="row g-3 mb-4">
           {% for trek in treks %}
             <div class="col-md-6">
@@ -151,24 +220,41 @@
                 <p class="mb-1">Difficulty: {{ trek.difficulty }}</p>
                 <p class="mb-1">Slots: {{ trek.available_slots }}</p>
                 <p class="mb-1">Status: {{ trek.status }}</p>
+                {% if trek.status == 'Open' and trek.available_slots > 0 %}
                 <form method="post" action="{{ url_for('book_trek', trek_id=trek.id) }}">
-                  <button class="btn btn-success btn-sm" type="submit">Book Trek</button>
+                  <button class="btn btn-success btn-sm mt-2" type="submit">Book Trek</button>
                 </form>
+                {% else %}
+                <button class="btn btn-secondary btn-sm mt-2" disabled>Booking Unavailable</button>
+                {% endif %}
               </div>
             </div>
           {% else %}
-            <div class="col-12"><div class="alert alert-info">No open treks available.</div></div>
+            <div class="col-12"><div class="alert alert-info">No treks matching your search.</div></div>
           {% endfor %}
         </div>
 
-        <h4>Your Bookings</h4>
+        <h4>Your Bookings & Trekking History</h4>
         <table class="table table-bordered">
-          <thead><tr><th>Trek</th><th>Status</th><th>Date</th></tr></thead>
+          <thead><tr><th>Trek</th><th>Status</th><th>Date</th><th>Action</th></tr></thead>
           <tbody>
             {% for booking in bookings %}
-            <tr><td>{{ booking.trek_name }}</td><td>{{ booking.status }}</td><td>{{ booking.booking_date }}</td></tr>
+            <tr>
+              <td>{{ booking.trek_name }}</td>
+              <td>{{ booking.status }}</td>
+              <td>{{ booking.booking_date }}</td>
+              <td>
+                {% if booking.status == 'Booked' %}
+                <form method="post" action="{{ url_for('cancel_booking', booking_id=booking.id) }}" style="display:inline;">
+                  <button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Cancel this booking?');">Cancel Booking</button>
+                </form>
+                {% else %}
+                -
+                {% endif %}
+              </td>
+            </tr>
             {% else %}
-            <tr><td colspan="3">No bookings yet.</td></tr>
+            <tr><td colspan="4">No bookings yet.</td></tr>
             {% endfor %}
           </tbody>
         </table>

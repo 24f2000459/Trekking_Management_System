@@ -56,8 +56,17 @@ def init_db():
             trek_id INTEGER NOT NULL,
             booking_date TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'Booked',
+            payment_status TEXT NOT NULL DEFAULT 'Pending',
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (trek_id) REFERENCES treks(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS staff_profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER UNIQUE NOT NULL,
+            experience_years INTEGER DEFAULT 0,
+            specialties TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
         """
     )
@@ -116,8 +125,8 @@ def register():
         password = request.form["password"]
         role = request.form.get("role", "user")
 
-        if role not in {"user", "staff", "admin"}:
-            flash("Invalid role selected.", "danger")
+        if role not in {"user", "staff"}:
+            flash("Invalid role selected. Admin registration is not permitted.", "danger")
             return render_template("register.html")
 
         if not username or not full_name or not email or not password:
@@ -135,7 +144,7 @@ def register():
             return render_template("register.html")
 
         status = "pending" if role == "staff" else "active"
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT INTO users (username, full_name, email, phone, password_hash, role, status, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -151,6 +160,12 @@ def register():
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             ),
         )
+        if role == "staff":
+            user_id = cursor.lastrowid
+            conn.execute(
+                "INSERT INTO staff_profiles (user_id, experience_years, specialties) VALUES (?, ?, ?)",
+                (user_id, 0, ""),
+            )
         conn.commit()
         conn.close()
 
@@ -174,11 +189,11 @@ def login():
         conn.close()
 
         if user and user["password_hash"] == hash_password(password):
-            if user["role"] == "staff" and user["status"] != "approved":
-                flash("Your staff account is still pending approval.", "warning")
-                return render_template("login.html")
             if user["status"] == "blacklisted":
                 flash("Your account has been blacklisted.", "danger")
+                return render_template("login.html")
+            if user["role"] == "staff" and user["status"] != "approved":
+                flash("Your staff account is still pending approval.", "warning")
                 return render_template("login.html")
 
             session.clear()
@@ -205,17 +220,60 @@ def dashboard():
 
     conn = get_db()
     if g.user["role"] == "admin":
+        search = request.args.get("search", "").strip()
+
+        # Stats
         total_treks = conn.execute("SELECT COUNT(*) AS count FROM treks").fetchone()["count"]
         total_users = conn.execute("SELECT COUNT(*) AS count FROM users WHERE role = 'user'").fetchone()["count"]
         total_staff = conn.execute("SELECT COUNT(*) AS count FROM users WHERE role = 'staff'").fetchone()["count"]
         total_bookings = conn.execute("SELECT COUNT(*) AS count FROM bookings").fetchone()["count"]
-        treks = conn.execute(
-            "SELECT t.*, u.full_name AS staff_name FROM treks t LEFT JOIN users u ON t.assigned_staff_id = u.id ORDER BY t.id DESC"
-        ).fetchall()
+
+        # Treks query with search option
+        if search:
+            treks = conn.execute(
+                """
+                SELECT t.*, u.full_name AS staff_name 
+                FROM treks t 
+                LEFT JOIN users u ON t.assigned_staff_id = u.id 
+                WHERE t.name LIKE ? OR t.location LIKE ? OR CAST(t.id AS TEXT) = ? 
+                ORDER BY t.id DESC
+                """,
+                (f"%{search}%", f"%{search}%", search),
+            ).fetchall()
+        else:
+            treks = conn.execute(
+                "SELECT t.*, u.full_name AS staff_name FROM treks t LEFT JOIN users u ON t.assigned_staff_id = u.id ORDER BY t.id DESC"
+            ).fetchall()
+
+        # Users and staff query with search option
+        if search:
+            users = conn.execute(
+                """
+                SELECT * FROM users 
+                WHERE role != 'admin' AND (full_name LIKE ? OR username LIKE ? OR CAST(id AS TEXT) = ?) 
+                ORDER BY id DESC
+                """,
+                (f"%{search}%", f"%{search}%", search),
+            ).fetchall()
+        else:
+            users = conn.execute("SELECT * FROM users WHERE role != 'admin' ORDER BY id DESC").fetchall()
+
+        # Pending staff
         pending_staff = conn.execute(
             "SELECT * FROM users WHERE role = 'staff' AND status = 'pending' ORDER BY id DESC"
         ).fetchall()
-        users = conn.execute("SELECT * FROM users WHERE role != 'admin' ORDER BY id DESC").fetchall()
+
+        # Bookings history
+        bookings = conn.execute(
+            """
+            SELECT b.*, u.full_name AS user_name, t.name AS trek_name 
+            FROM bookings b 
+            JOIN users u ON b.user_id = u.id 
+            JOIN treks t ON b.trek_id = t.id 
+            ORDER BY b.id DESC
+            """
+        ).fetchall()
+
         conn.close()
         return render_template(
             "dashboard.html",
@@ -229,32 +287,69 @@ def dashboard():
             treks=treks,
             pending_staff=pending_staff,
             users=users,
+            bookings=bookings,
+            search=search,
         )
 
     if g.user["role"] == "staff":
+        # Treks with participant counts
         treks = conn.execute(
-            "SELECT * FROM treks WHERE assigned_staff_id = ? ORDER BY id DESC",
+            """
+            SELECT t.*, COUNT(b.id) AS participant_count 
+            FROM treks t 
+            LEFT JOIN bookings b ON t.id = b.trek_id AND b.status = 'Booked'
+            WHERE t.assigned_staff_id = ? 
+            GROUP BY t.id
+            ORDER BY t.id DESC
+            """,
             (g.user["id"],),
         ).fetchall()
-        participants = []
-        for trek in treks:
-            bookings = conn.execute(
-                "SELECT b.*, u.full_name FROM bookings b JOIN users u ON b.user_id = u.id WHERE b.trek_id = ?",
-                (trek["id"],),
-            ).fetchall()
-            participants.extend(bookings)
+
+        # Participants list for assigned treks (with trek name)
+        participants = conn.execute(
+            """
+            SELECT b.*, u.full_name, t.name AS trek_name 
+            FROM bookings b 
+            JOIN users u ON b.user_id = u.id 
+            JOIN treks t ON b.trek_id = t.id 
+            WHERE t.assigned_staff_id = ?
+            ORDER BY b.id DESC
+            """,
+            (g.user["id"],),
+        ).fetchall()
+
         conn.close()
         return render_template("dashboard.html", role="staff", treks=treks, participants=participants)
 
-    treks = conn.execute(
-        "SELECT * FROM treks WHERE status IN ('Approved','Open') ORDER BY id DESC"
-    ).fetchall()
+    # User Role
+    search = request.args.get("search", "").strip()
+    difficulty = request.args.get("difficulty", "").strip()
+
+    query = "SELECT * FROM treks WHERE status IN ('Approved', 'Open')"
+    params = []
+    if search:
+        query += " AND (name LIKE ? OR location LIKE ?)"
+        params.extend([f"%{search}%", f"%{search}%"])
+    if difficulty:
+        query += " AND difficulty = ?"
+        params.append(difficulty)
+    query += " ORDER BY id DESC"
+
+    treks = conn.execute(query, params).fetchall()
+
     bookings = conn.execute(
         "SELECT b.*, t.name AS trek_name FROM bookings b JOIN treks t ON b.trek_id = t.id WHERE b.user_id = ? ORDER BY b.id DESC",
         (g.user["id"],),
     ).fetchall()
     conn.close()
-    return render_template("dashboard.html", role="user", treks=treks, bookings=bookings)
+    return render_template(
+        "dashboard.html",
+        role="user",
+        treks=treks,
+        bookings=bookings,
+        search=search,
+        difficulty=difficulty,
+    )
 
 
 @app.route("/treks/new", methods=["GET", "POST"])
@@ -390,6 +485,22 @@ def restore_user(user_id):
     return redirect(url_for("dashboard"))
 
 
+@app.route("/admin/delete-user/<int:user_id>", methods=["POST"])
+def delete_user(user_id):
+    if g.user is None or g.user["role"] != "admin":
+        flash("Access denied.", "danger")
+        return redirect(url_for("dashboard"))
+
+    conn = get_db()
+    conn.execute("DELETE FROM bookings WHERE user_id = ?", (user_id,))
+    conn.execute("DELETE FROM staff_profiles WHERE user_id = ?", (user_id,))
+    conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+    flash("User account deleted successfully.", "success")
+    return redirect(url_for("dashboard"))
+
+
 @app.route("/staff/treks/<int:trek_id>/update", methods=["POST"])
 def update_trek(trek_id):
     if g.user is None or g.user["role"] != "staff":
@@ -452,6 +563,37 @@ def book_trek(trek_id):
     conn.commit()
     conn.close()
     flash("Booking successful.", "success")
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/bookings/<int:booking_id>/cancel", methods=["POST"])
+def cancel_booking(booking_id):
+    if g.user is None:
+        return redirect(url_for("login"))
+
+    conn = get_db()
+    booking = conn.execute("SELECT * FROM bookings WHERE id = ?", (booking_id,)).fetchone()
+    if not booking:
+        conn.close()
+        flash("Booking not found.", "danger")
+        return redirect(url_for("dashboard"))
+
+    if g.user["role"] != "admin" and booking["user_id"] != g.user["id"]:
+        conn.close()
+        flash("Access denied.", "danger")
+        return redirect(url_for("dashboard"))
+
+    # If it was already cancelled, don't allow cancelling again
+    if booking["status"] == "Cancelled":
+        conn.close()
+        flash("Booking is already cancelled.", "warning")
+        return redirect(url_for("dashboard"))
+
+    conn.execute("UPDATE bookings SET status = 'Cancelled' WHERE id = ?", (booking_id,))
+    conn.execute("UPDATE treks SET available_slots = available_slots + 1 WHERE id = ?", (booking["trek_id"],))
+    conn.commit()
+    conn.close()
+    flash("Booking cancelled successfully.", "success")
     return redirect(url_for("dashboard"))
 
 
